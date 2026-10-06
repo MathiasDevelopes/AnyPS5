@@ -1,12 +1,11 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -46,17 +45,6 @@ struct Workgroup {
 };
 
 constexpr std::array<Workgroup, 4> Workgroups{{{32, 32}, {128, 32}, {64, 64}, {128, 64}}};
-
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
 
 ShaderRecompiler::RecompileResult Recompile(const AgcDriver::VulkanDevice& device, std::span<const std::uint32_t> code, const Workgroup& workgroup, std::span<const std::uint32_t> userData) {
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
@@ -137,18 +125,11 @@ void CheckRejections(const AgcDriver::VulkanDevice& device) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("global load addtid tests passed", [](AgcDriver::VulkanDevice& device) {
         for (const auto& workgroup : Workgroups) {
-            Run(*device, workgroup);
+            Run(device, workgroup);
             Check(workgroup);
         }
-        CheckRejections(*device);
-        std::puts("global load addtid tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        CheckRejections(device);
+    });
 }

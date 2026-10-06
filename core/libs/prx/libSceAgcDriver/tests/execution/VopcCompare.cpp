@@ -1,13 +1,12 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -118,31 +117,10 @@ void FillInput() {
     }
 }
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t count) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu) | (4u << 16u), count, 0x01016facu};
-}
-
 void Run(AgcDriver::VulkanDevice& device) {
     Output.fill(0xdeadbeefu);
-    std::vector<std::uint32_t> userData(8, 0u);
-    const auto input = BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size()));
-    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size()));
-    std::copy(input.begin(), input.end(), userData.begin());
-    std::copy(output.begin(), output.end(), userData.begin() + 4);
-    const std::span<const std::uint32_t> code(CompareCode);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    const auto userData = BufferUserData(BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size()), 4u), BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size()), 4u));
+    DispatchCompute(device, CompareCode, userData, Threads);
 }
 
 void Check() {
@@ -222,11 +200,9 @@ void Check() {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("vopc compare tests passed", [](AgcDriver::VulkanDevice& device) {
         FillInput();
-        Run(*device);
+        Run(device);
         Check();
         for (std::uint32_t pairBase = 0; pairBase < HalfEdges.size() * HalfEdges.size(); pairBase += Threads) {
             for (std::uint32_t tid = 0; tid < Threads; ++tid) {
@@ -234,13 +210,8 @@ int main() {
                 Input[tid * Inputs + 6u] = 0xabcd0000u | HalfEdges[pair / HalfEdges.size()];
                 Input[tid * Inputs + 7u] = 0x12340000u | HalfEdges[pair % HalfEdges.size()];
             }
-            Run(*device);
+            Run(device);
             Check();
         }
-        std::puts("vopc compare tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+    });
 }

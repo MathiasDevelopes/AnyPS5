@@ -1,12 +1,11 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -320,25 +319,10 @@ constexpr const char* Names64[Checked] = {
     "plane 30 (ds_write_b96, fill)", "plane 31 (ds_write_b32 past the end, fill)",
 };
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
-
 void Run(AgcDriver::VulkanDevice& device, std::span<const std::uint32_t> code, std::uint32_t waveSize, const ShaderRecompiler::SpirvTarget& target) {
     for (std::uint32_t tid = 0; tid < MaxThreads; ++tid) std::copy(std::begin(Rows[tid]), std::end(Rows[tid]), &Input[tid * Inputs]);
     Output.fill(0xdeadbeefu);
-    std::vector<std::uint32_t> userData(8, 0u);
-    const auto input = BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size() * 4u));
-    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size() * 4u));
-    std::copy(input.begin(), input.end(), userData.begin());
-    std::copy(output.begin(), output.end(), userData.begin() + 4);
+    const auto userData = BufferUserData(BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size() * 4u)), BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size() * 4u)));
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
     const ShaderRecompiler::ShaderComputeStageInfo compute{{waveSize, 1, 1}, waveSize * 32u, {false, false, false}, false, 1};
     ShaderRecompiler::RecompileRequest request{
@@ -366,19 +350,12 @@ void Check(const std::uint32_t (&expected)[Lanes][Checked], const char* const (&
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
-        Run(*device, Wave32Code, 32, device->Target());
+    return RunVulkanTest("lds read write tests passed", [](AgcDriver::VulkanDevice& device) {
+        Run(device, Wave32Code, 32, device.Target());
         Check(Expected32, Names32, "wave32");
-        Run(*device, Wave64Code, 64, device->Target());
+        Run(device, Wave64Code, 64, device.Target());
         Check(Expected64, Names64, "wave64");
-        Run(*device, Wave64Code, 64, device->ComputeTarget(32));
+        Run(device, Wave64Code, 64, device.ComputeTarget(32));
         Check(Expected64, Names64, "wave64 split");
-        std::puts("lds read write tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+    });
 }

@@ -1,12 +1,11 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -24,17 +23,6 @@ alignas(256) constexpr std::array<std::uint32_t, 14> Code{
     0x34060086, 0xbe9403ff, 0x55555555, 0xbe9503ff, 0x55555555, 0xb9141801, 0xb9150881, 0x7e140214,
     0x7e160215, 0xe0701000, 0x80010a03, 0xe0701004, 0x80010b03, 0xbf810000,
 };
-
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
 
 ShaderRecompiler::RecompileRequest Request(AgcDriver::VulkanDevice& device, std::span<const std::uint32_t> code, std::span<const std::uint32_t> userData, std::span<const ShaderRecompiler::MemoryRegion> memory) {
     const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
@@ -86,17 +74,10 @@ void Check() {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
-        Run(*device);
+    return RunVulkanTest("s_getreg_b32 tests passed", [](AgcDriver::VulkanDevice& device) {
+        Run(device);
         Check();
-        ExpectRefused(*device, 0xb9141901u, "the MODE denormal fields");
-        ExpectRefused(*device, 0xb914f804u, "hardware register 4");
-        std::puts("s_getreg_b32 tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        ExpectRefused(device, 0xb9141901u, "the MODE denormal fields");
+        ExpectRefused(device, 0xb914f804u, "hardware register 4");
+    });
 }

@@ -1,12 +1,11 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -62,11 +61,6 @@ void FillInput() {
     }
 }
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
 std::array<std::uint32_t, 8> TextureDescriptor(const void* data, std::uint32_t width, std::uint32_t height) {
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(data));
     return {
@@ -88,19 +82,7 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const ShaderRe
     std::copy(input.begin(), input.end(), userData.begin());
     std::copy(output.begin(), output.end(), userData.begin() + 4);
     std::copy(texture.begin(), texture.end(), userData.begin() + 8);
-    const std::span<const std::uint32_t> code(Code);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {waveSize, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        target,
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    DispatchCompute(device, Code, userData, Threads, waveSize, target);
 }
 
 void Check(const char* run) {
@@ -123,20 +105,13 @@ void Check(const char* run) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("image atomics bitwise tests passed", [](AgcDriver::VulkanDevice& device) {
         FillInput();
-        Run(*device, 32, device->Target());
+        Run(device, 32, device.Target());
         Check("wave32");
-        Run(*device, 64, device->Target());
+        Run(device, 64, device.Target());
         Check("wave64");
-        Run(*device, 64, device->ComputeTarget(32));
+        Run(device, 64, device.ComputeTarget(32));
         Check("wave64 split");
-        std::puts("image atomics bitwise tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+    });
 }

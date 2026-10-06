@@ -2,13 +2,12 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -58,12 +57,6 @@ constexpr std::array<Format, 11> Formats{{
     {"32_32_32_32_FLOAT", 77u, 16u, true},
 }};
 
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
-
 std::vector<AgcDriver::Graphics::TileMipLayout> Mips(const Format& format) {
     return AgcDriver::Graphics::ComputeMipLayout(AgcDriver::Graphics::TextureTileMode::kLinear, format.format, Width, 1u, Levels);
 }
@@ -105,11 +98,6 @@ std::array<std::uint32_t, 4> RawTexel(const Format& format, std::uint32_t level,
     return words;
 }
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
 std::array<std::uint32_t, 8> TextureDescriptor(const void* data, std::uint32_t format, std::uint32_t swizzle) {
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(data));
     return {
@@ -131,19 +119,7 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t format, std::uint32_t sw
     const auto texture = TextureDescriptor(Texels.data(), format, swizzle);
     std::copy(buffer.begin(), buffer.end(), userData.begin());
     std::copy(texture.begin(), texture.end(), userData.begin() + 4);
-    const std::span<const std::uint32_t> code(Code);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    DispatchCompute(device, Code, userData, Threads);
 }
 
 void Check(const Format& format) {
@@ -189,21 +165,14 @@ void RequireRefused(AgcDriver::VulkanDevice& device, std::uint32_t format, std::
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("image load packed tests passed", [](AgcDriver::VulkanDevice& device) {
         for (const auto& format : Formats) {
             FillTexture(format);
-            Run(*device, format.format, IdentitySwizzle);
+            Run(device, format.format, IdentitySwizzle);
             Check(format);
         }
         FillTexture(Formats[6]);
-        RequireRefused(*device, 57u, IdentitySwizzle, "not recoverable", "8_8_8_8_SNORM");
-        RequireRefused(*device, 56u, 0xf2eu, "identity swizzle", "a swizzled texture");
-        std::puts("image load packed tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        RequireRefused(device, 57u, IdentitySwizzle, "not recoverable", "8_8_8_8_SNORM");
+        RequireRefused(device, 56u, 0xf2eu, "identity swizzle", "a swizzled texture");
+    });
 }

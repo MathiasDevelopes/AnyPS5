@@ -2,13 +2,12 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -198,11 +197,6 @@ constexpr std::array<std::array<std::uint32_t, SampleResults>, Threads> SampleEx
     {0x42780000u, 0x42780000u, 0x43220000u, 0x43230000u, 0x427c0000u, 0x42780000u, 0x00000040u, 0x00000002u, 0x42780000u, 0x43220000u},
 }};
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
 std::array<std::uint32_t, 8> TextureDescriptor(const void* data, std::uint32_t format, std::uint32_t width, std::uint32_t height) {
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(data));
     return {
@@ -219,18 +213,7 @@ std::array<std::uint32_t, 4> SamplerDescriptor() {
 }
 
 void Dispatch(AgcDriver::VulkanDevice& device, std::span<const std::uint32_t> code, const std::vector<std::uint32_t>& userData) {
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    DispatchCompute(device, code, userData, Threads);
 }
 
 void FillBuffer(const std::array<std::array<std::uint32_t, 3>, Threads>& inputs) {
@@ -323,18 +306,11 @@ void CheckSample() {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
-        RunStorage(*device);
+    return RunVulkanTest("image cache bits tests passed", [](AgcDriver::VulkanDevice& device) {
+        RunStorage(device);
         CheckStorage();
-        RunSample(*device);
+        RunSample(device);
         CheckSample();
-        CheckRefused(*device);
-        std::puts("image cache bits tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        CheckRefused(device);
+    });
 }

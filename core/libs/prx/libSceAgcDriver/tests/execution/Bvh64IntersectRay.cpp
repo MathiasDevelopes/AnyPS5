@@ -2,7 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -228,11 +228,6 @@ void FillInput(std::uint64_t nodeBias) {
     }
 }
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
 std::array<std::uint32_t, 4> BvhDescriptor(std::uint64_t base, std::uint64_t lastNode) {
     return {static_cast<std::uint32_t>(base >> 8u), static_cast<std::uint32_t>((base >> 40u) & 0xffu) | BoxSort, static_cast<std::uint32_t>(lastNode), static_cast<std::uint32_t>((lastNode >> 32u) & 0x3ffu)};
 }
@@ -250,19 +245,7 @@ void Run(AgcDriver::VulkanDevice& device, const GuestBlock& guest, bool addressI
     std::copy(output.begin(), output.end(), userData.begin() + 4);
     std::copy(narrow.begin(), narrow.end(), userData.begin() + 8);
     std::copy(wide.begin(), wide.end(), userData.begin() + 12);
-    const std::span<const std::uint32_t> code(Code);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    DispatchCompute(device, Code, userData, Threads);
 }
 
 void Check(bool addressInPointer) {

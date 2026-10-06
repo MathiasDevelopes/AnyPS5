@@ -1,12 +1,11 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -472,11 +471,6 @@ std::array<std::uint32_t, Checked> ExpectedRow(std::uint32_t row) {
     return {input.initial, measured[0], input.initial, measured[1], input.initial, measured[2], input.source, measured[0]};
 }
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
 std::array<std::uint32_t, 8> TextureDescriptor(const void* data, std::uint32_t format) {
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(data));
     return {
@@ -539,25 +533,18 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const ShaderRe
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("image float atomics tests passed", [](AgcDriver::VulkanDevice& device) {
         for (const auto format : {Format32UInt, Format32SInt, Format32Float}) {
-            Run(*device, 32, device->Target(), "wave32", format);
-            Run(*device, 64, device->Target(), "wave64", format);
-            Run(*device, 64, device->ComputeTarget(32), "wave64 split", format);
+            Run(device, 32, device.Target(), "wave32", format);
+            Run(device, 64, device.Target(), "wave64", format);
+            Run(device, 64, device.ComputeTarget(32), "wave64 split", format);
         }
         bool refused = false;
         try {
-            static_cast<void>(Compile(32, device->Target(), Format16_16Float));
+            static_cast<void>(Compile(32, device.Target(), Format16_16Float));
         } catch (const std::exception& error) {
             refused = std::string(error.what()).find("atomic image descriptor uses an unsupported format 29") != std::string::npos;
         }
         Require(refused, "image float atomics on a 16_16 float surface were not refused");
-        std::puts("image float atomics tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+    });
 }

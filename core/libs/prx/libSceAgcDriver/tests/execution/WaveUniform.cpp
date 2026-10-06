@@ -1,7 +1,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <array>
 #include <cstdio>
 #include <iostream>
@@ -39,24 +39,8 @@ std::uint32_t Accumulated() {
 
 void Run(AgcDriver::VulkanDevice& device) {
     Output.fill(0xdeadbeefu);
-    std::vector<std::uint32_t> userData(8, 0u);
-    const auto input = BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size()));
-    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size()));
-    std::copy(input.begin(), input.end(), userData.begin());
-    std::copy(output.begin(), output.end(), userData.begin() + 4);
-    const std::span<const std::uint32_t> code(WaveCode);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {64, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    const auto userData = BufferUserData(BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size())), BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size())));
+    DispatchCompute(device, WaveCode, userData, Threads, 64);
 }
 
 void Check() {

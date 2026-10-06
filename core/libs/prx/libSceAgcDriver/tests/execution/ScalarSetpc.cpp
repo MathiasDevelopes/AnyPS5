@@ -1,12 +1,11 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -237,23 +236,8 @@ constexpr std::uint32_t Expected64[64][5] = {
 
 constexpr const char* Names[Checked] = {"jump_table", "jump_table_offset", "skip_forward", "loop_add_negative", "loop_sub"};
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
-
 ShaderRecompiler::RecompileResult Compile(std::span<const std::uint32_t> code, std::uint32_t waveSize, const ShaderRecompiler::SpirvTarget& target) {
-    std::vector<std::uint32_t> userData(8, 0u);
-    const auto input = BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size() * 4u));
-    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size() * 4u));
-    std::copy(input.begin(), input.end(), userData.begin());
-    std::copy(output.begin(), output.end(), userData.begin() + 4);
+    const auto userData = BufferUserData(BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size() * 4u)), BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size() * 4u)));
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
     const ShaderRecompiler::ShaderComputeStageInfo compute{{waveSize, 1, 1}, 0u, {false, false, false}, false, 1};
     ShaderRecompiler::RecompileRequest request{
@@ -297,20 +281,13 @@ void Check(const std::uint32_t (&expected)[Lanes][Checked]) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
-        Run(*device, Wave32Code, 32, device->ComputeTarget(32));
+    return RunVulkanTest("setpc tests passed", [](AgcDriver::VulkanDevice& device) {
+        Run(device, Wave32Code, 32, device.ComputeTarget(32));
         Check(Expected32);
-        Run(*device, Wave64Code, 64, device->Target());
+        Run(device, Wave64Code, 64, device.Target());
         Check(Expected64);
-        Run(*device, Wave64Code, 64, device->ComputeTarget(32));
+        Run(device, Wave64Code, 64, device.ComputeTarget(32));
         Check(Expected64);
-        CheckReversedSubtractRefused(*device);
-        std::puts("setpc tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        CheckReversedSubtractRefused(device);
+    });
 }

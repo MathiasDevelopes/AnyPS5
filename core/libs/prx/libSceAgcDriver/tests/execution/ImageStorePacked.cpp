@@ -4,7 +4,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -17,7 +17,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -171,18 +170,7 @@ void Run(AgcDriver::VulkanDevice& device, std::uint8_t* texels, std::span<const 
     std::vector<std::uint32_t> userData(16, 0u);
     const auto texture = TextureDescriptor(texels, format.format, swizzle, Levels(mip));
     std::copy(texture.begin(), texture.end(), userData.begin() + 4);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0u, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    DispatchCompute(device, code, userData, Threads);
     AgcDriver::Graphics::StorageTexture::FlushPending(reinterpret_cast<std::uintptr_t>(texels), TexelBytes, nullptr, "test");
     device.WaitIdle();
 }
@@ -224,27 +212,20 @@ void RequireRefused(AgcDriver::VulkanDevice& device, std::uint8_t* texels, const
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("image store packed tests passed", [](AgcDriver::VulkanDevice& device) {
         GuestBlock block;
         auto* texels = block.Data();
         for (const auto& format : Formats) {
-            Run(*device, texels, StoreCode, format, IdentitySwizzle, false);
+            Run(device, texels, StoreCode, format, IdentitySwizzle, false);
             Check(texels, format, false, "image_store_pck");
         }
-        Run(*device, texels, StoreCode, Formats[6], ReversedSwizzle, false);
+        Run(device, texels, StoreCode, Formats[6], ReversedSwizzle, false);
         Check(texels, Formats[6], false, "image_store_pck with a swizzled descriptor");
         for (const auto& format : {Formats[6], Formats[9]}) {
-            Run(*device, texels, MipCode, format, IdentitySwizzle, true);
+            Run(device, texels, MipCode, format, IdentitySwizzle, true);
             Check(texels, format, true, "image_store_mip_pck");
         }
-        RequireRefused(*device, texels, {"8_8_8_8_UNORM", 56u, 4u}, "not reproducible");
-        RequireRefused(*device, texels, {"32_32_32_FLOAT", 74u, 12u}, "does not write");
-        std::puts("image store packed tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        RequireRefused(device, texels, {"8_8_8_8_UNORM", 56u, 4u}, "not reproducible");
+        RequireRefused(device, texels, {"32_32_32_FLOAT", 74u, 12u}, "does not write");
+    });
 }

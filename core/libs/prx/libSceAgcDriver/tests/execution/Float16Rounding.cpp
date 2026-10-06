@@ -1,12 +1,11 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -294,17 +293,6 @@ constexpr Vector Vectors[] = {
 
 constexpr std::array<const char*, 3> Names{"v_cvt_f16_f32", "v_add_f16", "v_mul_f16"};
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t count) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu) | (4u << 16u), count, 0x01016facu};
-}
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
-
 bool IsNan16(std::uint32_t bits) {
     return (bits & 0x7fffu) > 0x7c00u;
 }
@@ -322,24 +310,8 @@ void Run(AgcDriver::VulkanDevice& device, std::uint32_t first, std::uint32_t cou
         Input[lane * Inputs + 2] = vector.c;
     }
     Output.fill(0xdeadbeefu);
-    std::vector<std::uint32_t> userData(8, 0u);
-    const auto input = BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size()));
-    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size()));
-    std::copy(input.begin(), input.end(), userData.begin());
-    std::copy(output.begin(), output.end(), userData.begin() + 4);
-    const std::span<const std::uint32_t> code(RoundingCode);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {32, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    const auto userData = BufferUserData(BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size()), 4u), BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size()), 4u));
+    DispatchCompute(device, RoundingCode, userData, Threads);
 }
 
 void Check(std::uint32_t first, std::uint32_t count) {
@@ -356,19 +328,12 @@ void Check(std::uint32_t first, std::uint32_t count) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("f16 rounding tests passed", [](AgcDriver::VulkanDevice& device) {
         constexpr std::uint32_t total = sizeof(Vectors) / sizeof(Vectors[0]);
         for (std::uint32_t first = 0; first < total; first += Threads) {
             const auto count = std::min(Threads, total - first);
-            Run(*device, first, count);
+            Run(device, first, count);
             Check(first, count);
         }
-        std::puts("f16 rounding tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+    });
 }

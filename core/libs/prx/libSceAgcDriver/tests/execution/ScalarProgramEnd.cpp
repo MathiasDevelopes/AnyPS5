@@ -1,14 +1,13 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -33,17 +32,6 @@ alignas(256) constexpr std::array<std::uint32_t, 30> Code{
 alignas(256) constexpr std::array<std::uint32_t, 2> RoundTowardZeroCode{0xbfa40003, 0xbf810000};
 
 void Fill(std::uint32_t tid, std::uint32_t* words) { words[0] = tid * 0x01010101u + 7u; }
-
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
 
 void Expect(std::uint32_t tid, std::uint32_t actual, std::uint32_t expected, const char* name) {
     Require(actual == expected, std::string("scalar program end: lane ") + std::to_string(tid) + " " + name + " is " + Hex(actual) + ", expected " + Hex(expected));
@@ -77,11 +65,7 @@ void ExpectRefused(AgcDriver::VulkanDevice& device) {
 void Run(AgcDriver::VulkanDevice& device) {
     for (std::uint32_t tid = 0; tid < Threads; ++tid) Fill(tid, &Input[tid * Inputs]);
     Output.fill(0xdeadbeefu);
-    std::vector<std::uint32_t> userData(8, 0u);
-    const auto input = BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size() * 4u));
-    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size() * 4u));
-    std::copy(input.begin(), input.end(), userData.begin());
-    std::copy(output.begin(), output.end(), userData.begin() + 4);
+    const auto userData = BufferUserData(BufferDescriptor(Input.data(), static_cast<std::uint32_t>(Input.size() * 4u)), BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size() * 4u)));
     const std::span<const std::uint32_t> code(Code);
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
     const auto result = ShaderRecompiler::Recompile(Request(device, code, userData, memory));
@@ -101,16 +85,9 @@ void Check() {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
-        Run(*device);
+    return RunVulkanTest("scalar program end tests passed", [](AgcDriver::VulkanDevice& device) {
+        Run(device);
         Check();
-        ExpectRefused(*device);
-        std::puts("scalar program end tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        ExpectRefused(device);
+    });
 }

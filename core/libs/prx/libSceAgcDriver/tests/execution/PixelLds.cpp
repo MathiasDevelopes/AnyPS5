@@ -1,7 +1,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -57,11 +57,6 @@ std::vector<std::uint32_t> PixelCode(bool bounded) {
     return code;
 }
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t stride, std::uint32_t count) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu) | (stride << 16u), count, 0x01016facu};
-}
-
 constexpr std::array<std::array<float, 4>, 3> Triangles{{
     {-1.0f, -1.0f, 0.5f, 1.0f}, {3.0f, -1.0f, 0.5f, 1.0f}, {-1.0f, 3.0f, 0.5f, 1.0f}
 }};
@@ -74,7 +69,7 @@ void Draw(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, bool bounded)
     const auto target = device.Target();
 
     std::vector<std::uint32_t> vertexUserData(4, 0u);
-    const auto vertexBuffer = BufferDescriptor(triangles.data(), 16u, static_cast<std::uint32_t>(triangles.size()));
+    const auto vertexBuffer = BufferDescriptor(triangles.data(), static_cast<std::uint32_t>(triangles.size()), 16u);
     std::copy(vertexBuffer.begin(), vertexBuffer.end(), vertexUserData.begin());
     const std::array<ShaderRecompiler::MemoryRegion, 1> vertexMemory{{{reinterpret_cast<std::uintptr_t>(VertexCode.data()), std::as_bytes(std::span(VertexCode))}}};
     ShaderRecompiler::RecompileRequest vertex{
@@ -95,7 +90,7 @@ void Draw(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, bool bounded)
     pixel.targetOutputMode[0] = 9;
     pixel.targetExportMapping.fill(0xe4u);
     std::vector<std::uint32_t> pixelUserData(8, 0u);
-    const auto results = BufferDescriptor(Results.data(), 16u, Width * Height);
+    const auto results = BufferDescriptor(Results.data(), Width * Height, 16u);
     std::copy(results.begin(), results.end(), pixelUserData.begin() + 4);
     const std::array<ShaderRecompiler::MemoryRegion, 1> pixelMemory{{{reinterpret_cast<std::uintptr_t>(pixelCode.data()), std::as_bytes(std::span(pixelCode))}}};
     ShaderRecompiler::RecompileRequest fragment{

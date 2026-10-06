@@ -2,7 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -15,7 +15,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <span>
 #include <string>
 #include <utility>
@@ -135,17 +134,6 @@ std::vector<std::uint8_t> Expected() {
     return image;
 }
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
-
 std::vector<std::uint32_t> UserData(const std::uint8_t* base) {
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(base));
     std::vector<std::uint32_t> userData(10, 0u);
@@ -232,18 +220,11 @@ void CheckRejected(const AgcDriver::VulkanDevice& device, GuestBlock& guest, std
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("global atomic csub tests passed", [](AgcDriver::VulkanDevice& device) {
         GuestBlock guest;
-        Run(*device, guest, 32);
-        Run(*device, guest, 64);
-        CheckRejected(*device, guest, NoReturnCode, "global_atomic_csub without glc is not supported");
-        CheckRejected(*device, guest, FlatSegmentCode, "global_atomic_csub is available only in the global segment");
-        std::puts("global atomic csub tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        Run(device, guest, 32);
+        Run(device, guest, 64);
+        CheckRejected(device, guest, NoReturnCode, "global_atomic_csub without glc is not supported");
+        CheckRejected(device, guest, FlatSegmentCode, "global_atomic_csub is available only in the global segment");
+    });
 }

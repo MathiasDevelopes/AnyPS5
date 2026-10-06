@@ -1,14 +1,13 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -253,12 +252,6 @@ std::array<std::uint32_t, 8> TextureDescriptor(std::uint32_t type, std::uint32_t
     };
 }
 
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
-
 std::uint32_t SourceRow(std::uint32_t tid) {
     return tid < Threads ? tid : (tid - Threads + Threads / 2u) % Threads;
 }
@@ -323,23 +316,16 @@ void Run(AgcDriver::VulkanDevice& device, const std::array<std::uint32_t, CodeWo
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
-        if (device->Target().subgroupSize < Threads) {
-            std::printf("EXEC-masked cases skipped, subgroup size %u cannot hold a wave32\n", device->Target().subgroupSize);
+    return RunVulkanTest("image sample derivatives tests passed", [](AgcDriver::VulkanDevice& device) {
+        if (device.Target().subgroupSize < Threads) {
+            std::printf("EXEC-masked cases skipped, subgroup size %u cannot hold a wave32\n", device.Target().subgroupSize);
         }
         std::vector<std::uint32_t> waves{Threads};
-        if (device->Target().subgroupSize >= Threads) waves.push_back(Wave64Threads);
+        if (device.Target().subgroupSize >= Threads) waves.push_back(Wave64Threads);
         for (const auto threads : waves) {
-            Run(*device, Code2D, threads, 9u, Height, 1u, Names2D, Masked2D, Expected2D);
-            Run(*device, Code3D, threads, 10u, Height, Depth, Names3D, Masked3D, Expected3D);
-            Run(*device, Code1D, threads, 8u, 1u, 1u, Names1D, Masked1D, Expected1D);
+            Run(device, Code2D, threads, 9u, Height, 1u, Names2D, Masked2D, Expected2D);
+            Run(device, Code3D, threads, 10u, Height, Depth, Names3D, Masked3D, Expected3D);
+            Run(device, Code1D, threads, 8u, 1u, 1u, Names1D, Masked1D, Expected1D);
         }
-        std::puts("image sample derivatives tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+    });
 }

@@ -1,11 +1,10 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <string>
 #include <vector>
@@ -31,12 +30,6 @@ constexpr std::array<NoFormOpcode, 23> NoFormOpcodes{{
     {true, 0x21u, "v_madak_f32"}, {true, 0x2cu, "v_fmamk_f32"}, {true, 0x2du, "v_fmaak_f32"},
     {true, 0x37u, "v_fmamk_f16"}, {true, 0x38u, "v_fmaak_f16"},
 }};
-
-std::string Hex(std::uint32_t value) {
-    char text[16];
-    std::snprintf(text, sizeof(text), "0x%08x", value);
-    return text;
-}
 
 auto Compile(AgcDriver::VulkanDevice& device, std::span<const std::uint32_t> code) {
     std::vector<std::uint32_t> userData(8, 0u);
@@ -75,23 +68,16 @@ std::uint32_t Encode(const NoFormOpcode& op, std::uint32_t form) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("dpp no form tests passed", [](AgcDriver::VulkanDevice& device) {
         constexpr std::uint32_t Dpp16 = 0xff00b104u;
         constexpr std::uint32_t Dpp8 = 0x00fac604u;
         for (const auto& op : NoFormOpcodes) {
             const std::string name = op.name;
-            CheckRefused(*device, Encode(op, 0xfau), Dpp16, "DPP modifier is not supported for opcode", name + " with DPP16");
-            CheckRefused(*device, Encode(op, 0xe9u), Dpp8, "DPP8 modifier is not supported for opcode", name + " with DPP8");
-            CheckRefused(*device, Encode(op, 0xeau), Dpp8, "DPP8 modifier is not supported for opcode", name + " with DPP8 fi:1");
+            CheckRefused(device, Encode(op, 0xfau), Dpp16, "DPP modifier is not supported for opcode", name + " with DPP16");
+            CheckRefused(device, Encode(op, 0xe9u), Dpp8, "DPP8 modifier is not supported for opcode", name + " with DPP8");
+            CheckRefused(device, Encode(op, 0xeau), Dpp8, "DPP8 modifier is not supported for opcode", name + " with DPP8 fi:1");
         }
-        CheckAccepted(*device, 0x7e1402fau, Dpp16);
-        CheckAccepted(*device, 0x4a140afau, Dpp16);
-        std::puts("dpp no form tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        CheckAccepted(device, 0x7e1402fau, Dpp16);
+        CheckAccepted(device, 0x4a140afau, Dpp16);
+    });
 }

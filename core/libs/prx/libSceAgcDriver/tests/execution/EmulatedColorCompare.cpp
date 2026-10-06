@@ -2,13 +2,12 @@
 #include "prx/libSceAgcDriver/Graphics/include/GuestTextureResource.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/TextureTiling.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <iostream>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -54,11 +53,6 @@ struct Sampler {
     std::uint32_t filter;
     std::uint32_t border = BorderBlack;
 };
-
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
-}
 
 std::array<std::uint32_t, 8> TextureDescriptor(std::uint32_t format) {
     const auto address = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(Texels.data()));
@@ -195,29 +189,22 @@ void Reject(AgcDriver::VulkanDevice& device, std::uint32_t format, const Sampler
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("emulated color compare tests passed", [](AgcDriver::VulkanDevice& device) {
         FillTexels();
         FillInput();
-        Require(BindsDepthCompare(Compile(*device, Format32Float, {ClampEdge, FilterBilinear})), "an R32 float texture left the native comparison path");
-        Require(!BindsDepthCompare(Compile(*device, Format8888UNorm, {ClampEdge, FilterBilinear})), "a color texture kept a depth-compare binding");
-        Run(*device, {ClampEdge, FilterPoint}, "point, clamp to edge");
-        Run(*device, {ClampEdge, FilterBilinear}, "bilinear, clamp to edge");
-        Run(*device, {ClampWrap, FilterBilinear}, "bilinear, wrap");
-        Run(*device, {ClampBorder, FilterPoint, BorderWhite}, "point, white border");
-        Run(*device, {ClampBorder, FilterPoint, BorderBlack}, "point, black border");
-        Run(*device, {ClampBorder, FilterBilinear, BorderWhite}, "bilinear, white border");
-        Run(*device, {ClampBorder, FilterBilinear, BorderBlack}, "bilinear, black border");
-        Reject(*device, Format8888UInt, {ClampEdge, FilterPoint}, "unsupported format");
-        Reject(*device, Format8888UNorm, {ClampMirror, FilterPoint}, "wrap, clamp-to-edge or clamp-to-border");
-        Reject(*device, Format8888UNorm, {ClampHalfBorder, FilterPoint}, "wrap, clamp-to-edge or clamp-to-border");
-        Reject(*device, Format8888UNorm, {ClampBorder, FilterPoint, BorderTable}, "border color table");
-        Reject(*device, Format8888UNorm, {ClampEdge, FilterAnisoBilinear}, "point or bilinear");
-        std::puts("emulated color compare tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        Require(BindsDepthCompare(Compile(device, Format32Float, {ClampEdge, FilterBilinear})), "an R32 float texture left the native comparison path");
+        Require(!BindsDepthCompare(Compile(device, Format8888UNorm, {ClampEdge, FilterBilinear})), "a color texture kept a depth-compare binding");
+        Run(device, {ClampEdge, FilterPoint}, "point, clamp to edge");
+        Run(device, {ClampEdge, FilterBilinear}, "bilinear, clamp to edge");
+        Run(device, {ClampWrap, FilterBilinear}, "bilinear, wrap");
+        Run(device, {ClampBorder, FilterPoint, BorderWhite}, "point, white border");
+        Run(device, {ClampBorder, FilterPoint, BorderBlack}, "point, black border");
+        Run(device, {ClampBorder, FilterBilinear, BorderWhite}, "bilinear, white border");
+        Run(device, {ClampBorder, FilterBilinear, BorderBlack}, "bilinear, black border");
+        Reject(device, Format8888UInt, {ClampEdge, FilterPoint}, "unsupported format");
+        Reject(device, Format8888UNorm, {ClampMirror, FilterPoint}, "wrap, clamp-to-edge or clamp-to-border");
+        Reject(device, Format8888UNorm, {ClampHalfBorder, FilterPoint}, "wrap, clamp-to-edge or clamp-to-border");
+        Reject(device, Format8888UNorm, {ClampBorder, FilterPoint, BorderTable}, "border color table");
+        Reject(device, Format8888UNorm, {ClampEdge, FilterAnisoBilinear}, "point or bilinear");
+    });
 }

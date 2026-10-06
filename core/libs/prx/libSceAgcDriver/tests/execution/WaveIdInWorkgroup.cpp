@@ -1,10 +1,9 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <array>
 #include <cstdio>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -38,14 +37,9 @@ constexpr std::array<Workgroup, 6> Workgroups{{
     {{128, 1, 1}, 32}, {{128, 1, 1}, 64}, {{8, 8, 2}, 32}, {{8, 8, 2}, 64}, {{8, 13, 1}, 32}, {{8, 13, 1}, 64},
 }};
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t count) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu) | (4u << 16u), count, 0x01016facu};
-}
-
 void Run(AgcDriver::VulkanDevice& device, const Workgroup& workgroup) {
     Output.fill(Untouched);
-    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size()));
+    const auto output = BufferDescriptor(Output.data(), static_cast<std::uint32_t>(Output.size()), 4u);
     const std::vector<std::uint32_t> userData(output.begin(), output.end());
     const std::span<const std::uint32_t> code(WaveIdCode);
     const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
@@ -94,18 +88,11 @@ void CheckRejectedOutsideCompute(const AgcDriver::VulkanDevice& device) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("wave id in workgroup tests passed", [](AgcDriver::VulkanDevice& device) {
         for (const auto& workgroup : Workgroups) {
-            Run(*device, workgroup);
+            Run(device, workgroup);
             Check(workgroup);
         }
-        CheckRejectedOutsideCompute(*device);
-        std::puts("wave id in workgroup tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        CheckRejectedOutsideCompute(device);
+    });
 }

@@ -1,7 +1,7 @@
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -31,11 +31,6 @@ alignas(256) constexpr std::array<std::uint32_t, 21> PixelCode{
     0x80010506, 0x7e0e02f2, 0xf800180f, 0x07070707, 0xbf810000,
 };
 
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t stride, std::uint32_t count) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu) | (stride << 16u), count, 0x01016facu};
-}
-
 std::vector<std::array<float, 4>> Triangles() {
     std::vector<std::array<float, 4>> vertices;
     constexpr std::uint32_t columns = 6;
@@ -59,7 +54,7 @@ void Draw(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const ShaderR
     Lanes.fill(Sentinel);
 
     std::vector<std::uint32_t> vertexUserData(4, 0u);
-    const auto vertexBuffer = BufferDescriptor(triangles.data(), 16u, static_cast<std::uint32_t>(triangles.size()));
+    const auto vertexBuffer = BufferDescriptor(triangles.data(), static_cast<std::uint32_t>(triangles.size()), 16u);
     std::copy(vertexBuffer.begin(), vertexBuffer.end(), vertexUserData.begin());
     const std::array<ShaderRecompiler::MemoryRegion, 1> vertexMemory{{{reinterpret_cast<std::uintptr_t>(VertexCode.data()), std::as_bytes(std::span(VertexCode))}}};
     ShaderRecompiler::RecompileRequest vertex{
@@ -80,7 +75,7 @@ void Draw(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const ShaderR
     pixel.targetOutputMode[0] = 9;
     pixel.targetExportMapping.fill(0xe4u);
     std::vector<std::uint32_t> pixelUserData(8, 0u);
-    const auto lanes = BufferDescriptor(Lanes.data(), 4u, static_cast<std::uint32_t>(Lanes.size()));
+    const auto lanes = BufferDescriptor(Lanes.data(), static_cast<std::uint32_t>(Lanes.size()), 4u);
     std::copy(lanes.begin(), lanes.end(), pixelUserData.begin() + 4);
     const std::array<ShaderRecompiler::MemoryRegion, 1> pixelMemory{{{reinterpret_cast<std::uintptr_t>(PixelCode.data()), std::as_bytes(std::span(PixelCode))}}};
     ShaderRecompiler::RecompileRequest fragment{

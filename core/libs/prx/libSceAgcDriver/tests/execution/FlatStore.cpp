@@ -2,7 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -13,7 +13,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -91,19 +90,7 @@ void Dispatch(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const std
     std::vector<std::uint32_t> userData(8, 0u);
     userData[0] = static_cast<std::uint32_t>(address);
     userData[1] = static_cast<std::uint32_t>(address >> 32u);
-    const std::span<const std::uint32_t> code(FlatStoreCode);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {waveSize, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    DispatchCompute(device, FlatStoreCode, userData, Threads, waveSize);
 }
 
 void RunStores(AgcDriver::VulkanDevice& device, GuestBlock& guest, std::uint32_t waveSize) {
@@ -126,18 +113,11 @@ void RunReadOnly(AgcDriver::VulkanDevice& device, const GuestBlock& guest) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("flat store tests passed", [](AgcDriver::VulkanDevice& device) {
         GuestBlock writable(true);
         const GuestBlock readOnly(false);
-        RunStores(*device, writable, 32);
-        RunStores(*device, writable, 64);
-        RunReadOnly(*device, readOnly);
-        std::puts("flat store tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        RunStores(device, writable, 32);
+        RunStores(device, writable, 64);
+        RunReadOnly(device, readOnly);
+    });
 }

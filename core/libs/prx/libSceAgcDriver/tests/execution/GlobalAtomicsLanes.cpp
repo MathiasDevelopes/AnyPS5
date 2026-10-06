@@ -2,7 +2,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libc/include/GuestAllocations.hpp"
 #include "Recompiler.hpp"
-#include "VulkanTestDevice.hpp"
+#include "ExecutionTest.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -14,7 +14,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -86,11 +85,6 @@ private:
 
 void Put(std::vector<std::uint8_t>& image, std::uint32_t offset, std::uint64_t value, std::uint32_t bytes) {
     for (std::uint32_t byte = 0; byte < bytes; ++byte) image.at(offset + byte) = static_cast<std::uint8_t>(value >> (byte * 8u));
-}
-
-std::array<std::uint32_t, 4> BufferDescriptor(const void* data, std::uint32_t bytes) {
-    const auto address = reinterpret_cast<std::uintptr_t>(data);
-    return {static_cast<std::uint32_t>(address), static_cast<std::uint32_t>((address >> 32u) & 0xffffu), bytes, 0x01016facu};
 }
 
 std::string Hex(std::uint64_t value) {
@@ -172,19 +166,7 @@ void Dispatch(AgcDriver::VulkanDevice& device, std::uint32_t waveSize, const std
     std::copy(output.begin(), output.end(), userData.begin() + 4);
     userData[8] = static_cast<std::uint32_t>(address);
     userData[9] = static_cast<std::uint32_t>(address >> 32u);
-    const std::span<const std::uint32_t> code(GlobalAtomicsCode);
-    const std::array<ShaderRecompiler::MemoryRegion, 1> memory{{{reinterpret_cast<std::uintptr_t>(code.data()), std::as_bytes(code)}}};
-    const ShaderRecompiler::ShaderComputeStageInfo compute{{Threads, 1, 1}, 0, {false, false, false}, false, 1};
-    ShaderRecompiler::RecompileRequest request{
-        {ShaderStage::Compute, reinterpret_cast<std::uintptr_t>(code.data()), code, 0, {}},
-        {waveSize, 0, userData, compute, std::nullopt, std::nullopt, memory},
-        device.Target(),
-        {0, 0, 0, 128}
-    };
-    request.useCache = false;
-    const auto result = ShaderRecompiler::Recompile(request);
-    device.Dispatch(result, 1, 1, 1, {}, reinterpret_cast<std::uintptr_t>(code.data()));
-    device.WaitIdle();
+    DispatchCompute(device, GlobalAtomicsCode, userData, Threads, waveSize);
 }
 
 void RunAtomics(AgcDriver::VulkanDevice& device, GuestBlock& guest, std::uint32_t waveSize) {
@@ -234,18 +216,11 @@ void RunReadOnly(AgcDriver::VulkanDevice& device, GuestBlock& guest) {
 }
 
 int main() {
-    try {
-        const auto device = OpenVulkanTestDevice();
-        if (!device) return VulkanTestSkipped;
+    return RunVulkanTest("global atomics lanes tests passed", [](AgcDriver::VulkanDevice& device) {
         GuestBlock writable(true);
         GuestBlock readOnly(false);
-        RunAtomics(*device, writable, 32);
-        RunAtomics(*device, writable, 64);
-        RunReadOnly(*device, readOnly);
-        std::puts("global atomics lanes tests passed");
-        return 0;
-    } catch (const std::exception& error) {
-        std::cerr << error.what() << '\n';
-        return 1;
-    }
+        RunAtomics(device, writable, 32);
+        RunAtomics(device, writable, 64);
+        RunReadOnly(device, readOnly);
+    });
 }

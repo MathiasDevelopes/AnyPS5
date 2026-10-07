@@ -19,10 +19,13 @@ int APS5_VABI scePthreadAttrGetschedparam(const PthreadAttr* attr, KernelSchedPa
 int APS5_VABI scePthreadAttrGetaffinity(const PthreadAttr* attr, KernelCpumask* mask);
 int APS5_VABI scePthreadAttrGetstacksize(const PthreadAttr* attr, std::size_t* stackSize);
 int APS5_VABI scePthreadAttrGetdetachstate(const PthreadAttr* attr, int* state);
+int APS5_VABI scePthreadAttrGetsolosched(const PthreadAttr* attr, int* solosched);
+int APS5_VABI pthread_attr_setsolosched_np_nid_postfix(PthreadAttr* attr, int solosched);
 }
 
 static constexpr int SCE_OK = 0;
 static constexpr int SCE_KERNEL_ERROR_EINVAL = static_cast<int>(0x80020016);
+static constexpr int GUEST_EINVAL = 22;
 static constexpr int EXPLICIT_SCHED = 0;
 static constexpr int DETACH_JOINABLE = 0;
 static constexpr int CREATION_PRIORITY = 256;
@@ -94,7 +97,14 @@ int main() {
     Require(scePthreadAttrGet(thread, nullptr) == SCE_KERNEL_ERROR_EINVAL);
     Require(scePthreadAttrInit(&attr) == SCE_OK);
     Require(scePthreadAttrGet(nullptr, &attr) == SCE_KERNEL_ERROR_EINVAL);
+    int solosched = -1;
+    Require(scePthreadAttrGetsolosched(&attr, &solosched) == SCE_OK && solosched == 0);
+    Require(pthread_attr_setsolosched_np_nid_postfix(&attr, 1) == 0);
+    Require(scePthreadAttrGetsolosched(&attr, &solosched) == SCE_OK && solosched == 1);
     Require(scePthreadAttrDestroy(&attr) == SCE_OK);
+    Require(pthread_attr_setsolosched_np_nid_postfix(nullptr, 1) == GUEST_EINVAL);
+    PthreadAttr empty = nullptr;
+    Require(pthread_attr_setsolosched_np_nid_postfix(&empty, 1) == GUEST_EINVAL);
 
     release.set_value();
     Require(scePthreadJoin(thread, nullptr) == SCE_OK);

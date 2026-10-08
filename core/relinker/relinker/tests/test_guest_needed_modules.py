@@ -48,6 +48,18 @@ def module_with_needed(names, entries):
     return image
 
 
+def module_with_symbol_and_needed(image, needed):
+    strings = b"\0shared#A#B\0"
+    image[0x800 + len(strings):0x800 + len(strings) + len(needed) + 1] = needed + b"\0"
+    struct.pack_into("<Q", image, 0x618, len(strings) + len(needed) + 1)
+    tags = [struct.unpack_from("<qQ", image, 0x600 + index * 16) for index in range(9)]
+    tags = tags[:-1] + [(1, len(strings)), (0, 0)]
+    for index, tag in enumerate(tags):
+        struct.pack_into("<qQ", image, 0x600 + index * 16, *tag)
+    struct.pack_into("<QQ", image, 176 + 32, len(tags) * 16, len(tags) * 16)
+    return image
+
+
 def check_guest_needed(relinker, work):
     first, second = b"libkernel.prx", b"libSceVideoOut.prx"
     cases = (("single", (first,), (0,), [first.decode()]),
@@ -120,6 +132,35 @@ def main():
             if not windows:
                 needed = needed_libraries(output.read_bytes())
                 assert needed == ["$ORIGIN/app0/Media/Modules/needed.prx.guest.prx"], needed
+
+            case = work / f"{windows}-transitive"
+            (case / "Media").mkdir(parents=True)
+            (case / "Media" / "needed.prx").write_bytes(module_with_symbol_and_needed(module_with_symbol(False), b"provider.prx"))
+            (case / "Libraries").mkdir()
+            (case / "Libraries" / "provider.prx").write_bytes(module_with_symbol(True))
+            result, output = convert(case, windows)
+            assert result.returncode == 0, (result.stdout, result.stderr)
+            expected = {case / "app0" / "Media" / "needed.prx.guest.prx", case / "app0" / "Libraries" / "provider.prx.guest.prx"}
+            assert set((case / "app0").rglob("*.guest.prx")) == expected, list((case / "app0").rglob("*.guest.prx"))
+            if windows and os.name == "nt":
+                run = subprocess.run([str(output)], capture_output=True, text=True, timeout=30)
+                assert run.returncode == 42, (run.returncode, run.stdout, run.stderr)
+            if not windows:
+                needed = needed_libraries(output.read_bytes())
+                assert needed == ["$ORIGIN/app0/Libraries/provider.prx.guest.prx", "$ORIGIN/app0/Media/needed.prx.guest.prx"], needed
+
+            case = work / f"{windows}-transitive-host"
+            (case / "Media").mkdir(parents=True)
+            (case / "Media" / "needed.prx").write_bytes(module_with_symbol_and_needed(module_with_symbol(False), b"provider.prx"))
+            (case / "Libraries").mkdir()
+            (case / "Libraries" / "provider.prx").write_bytes(module_with_symbol_and_needed(module_with_symbol(True), b"libhost.prx"))
+            result, output = convert(case, windows)
+            assert result.returncode == 0, (result.stdout, result.stderr)
+            expected = {case / "app0" / "Media" / "needed.prx.guest.prx", case / "app0" / "Libraries" / "provider.prx.guest.prx"}
+            assert set((case / "app0").rglob("*.guest.prx")) == expected, list((case / "app0").rglob("*.guest.prx"))
+            if not windows:
+                needed = needed_libraries(output.read_bytes())
+                assert needed == ["$ORIGIN/app0/Libraries/provider.prx.guest.prx", "$ORIGIN/app0/Media/needed.prx.guest.prx", "libhost.prx"], needed
 
             case = work / f"{windows}-repeated-system"
             result, output = convert(case, windows, b"libSceVideoOut.prx", repeats=2)

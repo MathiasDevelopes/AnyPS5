@@ -263,6 +263,7 @@ private:
         std::vector<std::byte> uploaded {};
         // Registered allocation that is imported: its bytes are read from live guest memory, not a snapshot.
         bool hostBacked = false;
+        bool clipped = false;
         // Set when the region is served by an imported allocation; nothing is copied or written back.
         const HostImport* direct = nullptr;
         // Set when the region covers uncommitted pages: only the `backed` parts (possibly none) are guest

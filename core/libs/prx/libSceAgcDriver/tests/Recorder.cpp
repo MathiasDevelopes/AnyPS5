@@ -1000,6 +1000,54 @@ void viewPastLastMipTests(const Device& device, Recorder& recorder) {
     Require(texel(*past, 3) == 0x77777777u, "the level past the last mip was not read from its addrlib tail slot");
 }
 
+void clippedDescriptorTailTests(const Device& device) {
+    const auto& context = device.GetContext();
+    if (context.hostImportAlignment == 0) {
+        std::cout << "host imports unavailable: clipped descriptor tails not tested" << std::endl;
+        return;
+    }
+    constexpr std::size_t page = 65536;
+    constexpr std::size_t tail = 16;
+#ifdef _WIN32
+    void* block = VirtualAlloc(nullptr, 2 * page, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    void* block = std::aligned_alloc(page, 2 * page);
+#endif
+    Require(block != nullptr, "cannot allocate the test block");
+    std::memset(block, 0x11, 2 * page);
+    const auto address = reinterpret_cast<std::uint64_t>(block);
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Add(block, page, true, true);
+    }
+    if (HostImportFor(context, address, page) == nullptr) {
+        std::cout << "host import of the test block refused: clipped descriptor tails not tested" << std::endl;
+        return;
+    }
+    {
+        GuestBufferMemory memory(context);
+        memory.AddWritable(address, page + tail);
+        memory.AddReadable(address + 256, 1024);
+        memory.Upload(true);
+        std::uint32_t adjustment = 0;
+        const auto view = memory.Descriptor(address, page + tail, adjustment);
+        Require(view.range == page + adjustment, "a descriptor a few bytes past its registered allocation was not clipped to the import");
+        const auto inside = memory.Descriptor(address + 256, 1024, adjustment);
+        Require(inside.buffer == view.buffer, "a descriptor inside the clipped allocation is not served by its import");
+        Require(memory.Writes().size() == 1 && memory.Writes().front().first == address && memory.Writes().front().second == address + page, "the written range was not clipped with its region");
+        memory.WriteBack();
+    }
+    {
+        GuestAllocations::Mutation mutation;
+        mutation.Remove(block);
+    }
+#ifdef _WIN32
+    VirtualFree(block, 0, MEM_RELEASE);
+#else
+    std::free(block);
+#endif
+}
+
 void resourceReadTests(const Device& device, Recorder& recorder) {
     const auto& context = device.GetContext();
     if (context.hostImportAlignment == 0) {
@@ -2944,6 +2992,7 @@ int main(int argc, char** argv) {
         closeRaceTests(device, recorder);
         keyProofTests(device, recorder);
         resourceReadTests(device, recorder);
+        clippedDescriptorTailTests(device);
         misalignedSnapshotTests(device, recorder);
         drawSnapshotReuseTests(device, recorder);
         drawSnapshotEvictionTests(device);

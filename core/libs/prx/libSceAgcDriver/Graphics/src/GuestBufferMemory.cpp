@@ -469,6 +469,17 @@ const GuestAllocations::Range* containingRange(const GuestAllocations::Lease& le
     return range->readable && begin >= range->address && end <= range->address + range->bytes ? range.get() : nullptr;
 }
 
+std::uint64_t clippedLimit(const GuestAllocations::Lease& lease, std::uint64_t begin, std::uint64_t end, std::uint64_t alignment) {
+    if (alignment == 0 || end <= begin) return 0;
+    const auto* range = containingRange(lease, begin, begin + 1);
+    if (range == nullptr) return 0;
+    const auto limit = range->address + range->bytes;
+    if (end <= limit || end - limit >= alignment) return 0;
+    const auto next = std::lower_bound(lease.begin(), lease.end(), limit, [](const auto& candidate, std::uint64_t value) { return candidate->address < value; });
+    if (next != lease.end() && (*next)->address < end) return 0;
+    return limit;
+}
+
 // Drops imports whose registered range changed or disappeared: their pages may no longer back the
 // guest addresses. Walks the imports only when the registry changed since the last walk.
 void refreshImports(const Context& context, HostImports& state, const GuestAllocations::Lease& lease) {
@@ -2167,6 +2178,21 @@ void GuestBufferMemory::UploadFinish(bool addressable) {
             // was dropped since.
             const HostImport* entry = region.direct != nullptr && state.epoch == importsEpoch && region.begin >= region.direct->base && region.end <= region.direct->base + region.direct->bytes ? region.direct : nullptr;
             region.direct = nullptr;
+            if (entry == nullptr && region.buffer == nullptr && region.snapshot.empty() && region.mirror == nullptr) {
+                if (const auto limit = clippedLimit(importRanges(), region.begin, region.end, context.hostImportAlignment); limit != 0 && (!region.sparse || (region.backed.size() == 1 && region.backed.front().first <= region.begin && region.backed.front().second >= limit))) {
+                    region.end = limit;
+                    region.clipped = true;
+                    if (region.sparse) {
+                        region.sparse = false;
+                        region.backed.clear();
+                    }
+                    for (auto& written : writes) {
+                        if (written.first >= limit) written.second = written.first;
+                        else if (written.second > limit) written.second = limit;
+                    }
+                    std::erase_if(writes, [](const auto& written) { return written.first >= written.second; });
+                }
+            }
             if (entry == nullptr) entry = findImport(state, region.begin, region.end);
             if (entry == nullptr) {
                 if (const auto* range = containingRange(importRanges(), region.begin, region.end)) entry = importAllocation(context, state, range->address, range->bytes, importRanges());
@@ -2488,6 +2514,7 @@ VkDescriptorBufferInfo GuestBufferMemory::Descriptor(std::uint64_t address, std:
     const auto* found = owner(address);
     Require(found != nullptr, "guest buffer has no GPU owner");
     const auto& region = *found;
+    if (region.clipped && address + bytes > region.end) bytes = static_cast<std::size_t>(region.end - address);
     Require(address >= region.begin && address + bytes <= region.end && (region.buffer != nullptr || region.direct != nullptr || region.mirror != nullptr), "guest buffer view exceeds its GPU owner");
     const auto base = region.direct != nullptr ? region.direct->base : region.mirror != nullptr ? region.mirror->base : region.begin;
     const auto offset = address - base;
